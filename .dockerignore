@@ -1,0 +1,37 @@
+# Frontend .dockerignore
+node_modules
+npm-debug.log
+.next
+.git
+.gitignore
+README.md
+Dockerfile*
+docker-compose*
+.dockerignore
+backend/
+
+# IDE
+.vscode
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs
+
+# Coverage
+coverage
+.coverage
+
+# Environment
+.env
+.env.local
+.env.production
+.env.staging
+
+# Cache
+.cache
+.parcel-cache

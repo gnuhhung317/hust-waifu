@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pixi + Live2D Auto-Diagnose</title>
+  <style>
+    html,body{margin:0;padding:0;height:100%;background:#111;overflow:hidden}
+    canvas{display:block}
+    .banner{
+      position:fixed;top:12px;left:12px;max-width:70vw;white-space:pre-wrap;
+      font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      color:#0f0;background:rgba(0,0,0,.5);padding:8px 10px;border-radius:8px
+    }
+    .banner.err{color:#fff;background:rgba(160,0,0,.75)}
+    .hint{position:fixed;left:12px;bottom:12px;color:#ddd;font:12px system-ui;opacity:.75}
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div class="hint">Click/Tap vào thân model (Body) để kích hoạt motion</div>
+  <div id="bn" class="banner">Initializing…</div>
+
+  <!-- 1) PIXI v6 -->
+  <script src="https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js"></script>
+  <script>window.PIXI = window.PIXI || PIXI;</script>
+
+  <!-- 2) Cubism runtimes (both needed for full plugin) -->
+  <script src="https://cdn.jsdelivr.net/gh/dylanNew/live2d/webgl/Live2D/lib/live2d.min.js"></script>
+  <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+
+  <script src="live2d.js"></script>
+
+  <script>
+    (async () => {
+      const bn = document.getElementById('bn');
+      if (!bn) {
+        console.error('Banner element not found');
+        return;
+      }
+      const note = (m, bad=false) => { bn.textContent = m; bn.classList.toggle('err', bad); console.log('[DEBUG]', m); };
+
+      // Basic checks
+      if (!window.PIXI) { note('ERROR: PIXI not available', true); return; }
+      note(`PIXI v${PIXI.VERSION} loaded.`);
+
+      // Make sure Cubism runtimes exist
+      if (!window.live2d) {
+        note(
+`ERROR: Cubism 2 runtime (live2d) chưa có trên window.
+Có thể do:
+- Bị chặn bởi CSP/AdBlock.
+- Lỗi mạng đến dylanNew/live2d.
+- MIME/HTTPS bị chặn trên server hiện tại.
+
+=> Hãy mở DevTools > Network xem live2d.min.js có 200 OK không.`, true);
+        return;
+      }
+      if (!window.Live2DCubismCore) {
+        note(
+`ERROR: Cubism core (Live2DCubismCore) chưa có trên window.
+Có thể do:
+- Bị chặn bởi CSP/AdBlock.
+- Lỗi mạng đến cubism.live2d.com.
+- MIME/HTTPS bị chặn trên server hiện tại.
+
+=> Hãy mở DevTools > Network xem live2dcubismcore.min.js có 200 OK không.`, true);
+        return;
+      } else {
+        console.log('Live2DCubismCore found:', typeof window.Live2DCubismCore);
+        console.log('live2d found:', typeof window.live2d);
+      }
+
+      const pluginURLs = [
+        'https://cdn.jsdelivr.net/npm/pixi-live2d-display/dist/index.min.js'
+      ];
+
+      async function loadScript(src) {
+        return new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = src;
+          s.onload = () => resolve({ ok: true, src });
+          s.onerror = (e) => reject(new Error(`Failed to load ${src}`));
+          document.head.appendChild(s);
+        });
+      }
+
+      let loaded = false, lastErr = null;
+      for (const url of pluginURLs) {
+        try {
+          note(`Loading plugin: ${url} …`);
+          await loadScript(url);
+          if (PIXI && PIXI.live2d && PIXI.live2d.Live2DModel) {
+            note(`Plugin OK: ${url}`);
+            loaded = true;
+            break;
+          } else {
+            lastErr = new Error(`Plugin loaded but PIXI.live2d missing after ${url}`);
+            console.warn(lastErr);
+          }
+        } catch (e) {
+          lastErr = e;
+          console.warn(e);
+        }
+      }
+
+      if (!loaded) {
+        note(`ERROR: Không thể gắn plugin vào PIXI.\n${lastErr ? lastErr.message : ''}\n\nGợi ý:
+- Kiểm tra DevTools > Network: script plugin có status 200 không?
+- Thử tắt AdBlock hoặc CSP nghiêm ngặt.
+- Nếu đang mở file trực tiếp (file://), hãy chạy bằng web server cục bộ.`, true);
+        return;
+      }
+
+      // ---- From here, PIXI.live2d must exist ----
+      const P = PIXI;
+      const app = new P.Application({
+        view: document.getElementById('canvas'),
+        resizeTo: window,
+        backgroundColor: 0x111111,
+        antialias: true,
+        powerPreference: 'high-performance',
+      });
+
+      const rType = app.renderer.type;
+      const rName = rType === P.RENDERER_TYPE.WEBGL ? 'WEBGL'
+                    : rType === P.RENDERER_TYPE.CANVAS ? 'CANVAS' : 'UNKNOWN';
+      note(`PIXI v${P.VERSION}\nRenderer: ${rName}\nPlugin: OK`);
+
+      if (rType !== P.RENDERER_TYPE.WEBGL) {
+        note(`WARNING: Renderer = ${rName}. Live2D cần WebGL để hoạt động tối ưu.`, true);
+      }
+
+      app.stage.eventMode = 'static';
+      app.stage.hitArea = app.screen;
+
+      let model;
+      try {
+        model = await P.live2d.Live2DModel.from(
+          'https://cdn.jsdelivr.net/gh/guansss/pixi-live2d-display@test/assets/haru/haru_greeter_t03.model3.json'
+        );
+      } catch (e) {
+        console.error('Failed to load model:', e);
+        note('ERROR: Failed to load model (xem console).', true);
+        return;
+      }
+
+      app.stage.addChild(model);
+
+      model.anchor.set(0.5);
+      const place = () => {
+        model.position.set(app.screen.width / 2, app.screen.height / 2 + 100);
+        const base = Math.min(app.screen.width, app.screen.height);
+        const scale = Math.max(0.25, Math.min(0.6, base / 2500));
+        model.scale.set(scale);
+      };
+      place();
+      addEventListener('resize', place);
+
+      model.on('hit', areas => {
+        console.log('Hit areas:', areas);
+        if (areas.includes('Body')) {
+          try { model.motion('Tap'); }
+          catch (e) {
+            console.warn('Tap not found; fallback', e);
+            const groups = model.internalModel?.motionManager?._definitions?._groups || {};
+            const first = Object.keys(groups)[0];
+            if (first) model.motion(first);
+          }
+        }
+      });
+
+      console.log('Live2D model loaded!');
+      note(`PIXI v${P.VERSION}\nRenderer: ${rName}\nModel: loaded ✅`);
+    })();
+  </script>
+</body>
+</html>  
+</xai:function_call name="replace_string_in_file">
+<parameter name="filePath">d:\Code\Projects\self-projects\wafu-model\test.html
